@@ -1,0 +1,533 @@
+<title>뉴트 프로모션 시뮬레이터</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 한 장짜리 운영 도구. 위에서 아래로 설정 → 핵심 숫자 → 시나리오 비교 → 구간별 상세 → 차트 → 구분별 분해 → 가정 */
+:root {
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --surface-2: #eef2f0;
+  --line: #d9e0dd;
+  --fg: #16201c;
+  --fg-2: #4b5853;
+  --fg-3: #6f7c77;
+  --accent: #1f6b55;
+  --accent-soft: #e1efe9;
+  --accent-fg: #ffffff;
+  --series-base: #9aa7a2;
+  --series-scn: #2a78d6;
+  --good: #1c7a3e;
+  --bad: #b3372f;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111715; --surface: #18201d; --surface-2: #1f2925; --line: #2e3a35;
+    --fg: #e9efec; --fg-2: #b5c2bc; --fg-3: #8d9a94;
+    --accent: #5cc29f; --accent-soft: #1f3a30; --accent-fg: #0b1a14;
+    --series-base: #6c7a74; --series-scn: #3987e5;
+    --good: #5bc27f; --bad: #ec7a70;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111715; --surface: #18201d; --surface-2: #1f2925; --line: #2e3a35;
+  --fg: #e9efec; --fg-2: #b5c2bc; --fg-3: #8d9a94;
+  --accent: #5cc29f; --accent-soft: #1f3a30; --accent-fg: #0b1a14;
+  --series-base: #6c7a74; --series-scn: #3987e5;
+  --good: #5bc27f; --bad: #ec7a70;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+}
+.wrap {
+  max-width: 1240px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 56px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 17px; font-weight: 700; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.muted { color: var(--fg-3); }
+.sub { color: var(--fg-2); margin: 6px 0 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 12px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  background: var(--surface-2); color: var(--fg-2); border: 1px solid var(--line);
+}
+.chip b { color: var(--fg); font-weight: 600; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 14px; }
+.panel-head p { margin: 0; color: var(--fg-3); font-size: 12.5px; }
+
+/* 설정 */
+.controls { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 860px) { .controls { grid-template-columns: 1fr; } }
+.ctl-label { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--fg-2); margin-bottom: 8px; display: block; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.preset {
+  font: inherit; font-weight: 600; font-size: 13px; cursor: pointer;
+  padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--fg);
+}
+.preset[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.preset:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--series-scn); outline-offset: 2px; }
+.slider-row { display: flex; align-items: center; gap: 12px; }
+.slider-row input[type="range"] { flex: 1; accent-color: var(--accent); min-width: 0; }
+.slider-val { font-family: var(--font-num); font-size: 18px; font-weight: 500; min-width: 64px; text-align: right; }
+.check { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; color: var(--fg-2); font-size: 13px; }
+.check input { margin-top: 3px; accent-color: var(--accent); }
+.disc-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.disc-row input { width: 84px; }
+input[type="number"] {
+  font: inherit; font-family: var(--font-num); text-align: right;
+  padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg);
+}
+.rate-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rate-table th, .rate-table td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+.rate-table th { font-size: 12px; color: var(--fg-3); font-weight: 600; }
+.rate-table td:last-child, .rate-table th:last-child { text-align: right; }
+.rate-table input { width: 76px; }
+.rate-table tr.off td { color: var(--fg-3); }
+
+/* 핵심 숫자 */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 960px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .kpis { grid-template-columns: 1fr; } }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kpi .k-label { font-size: 12.5px; font-weight: 600; color: var(--fg-2); }
+.kpi .k-value { font-family: var(--font-num); font-size: 22px; font-weight: 500; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.kpi .k-unit { font-size: 13px; color: var(--fg-2); margin-left: 2px; font-family: var(--font-body); }
+.kpi .k-approx { font-size: 12.5px; color: var(--fg-3); }
+.kpi .k-delta { font-size: 12.5px; color: var(--fg-2); margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.kpi.primary { background: var(--accent-soft); border-color: transparent; }
+.up { color: var(--good); }
+.down { color: var(--bad); }
+
+/* 표 */
+.table-scroll { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.data th, table.data td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.data thead th { font-size: 12px; font-weight: 600; color: var(--fg-2); text-align: right; background: var(--surface-2); position: sticky; top: 0; }
+table.data thead th:first-child, table.data tbody th { text-align: left; }
+table.data tbody th { font-weight: 600; }
+table.data td { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+table.data tr.total th, table.data tr.total td { font-weight: 700; background: var(--surface-2); border-bottom: none; }
+table.data th.cur, table.data td.cur { background: var(--accent-soft); }
+table.data .rowsub { display: block; font-size: 11.5px; color: var(--fg-3); font-weight: 400; }
+.tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--fg-3); border: 1px solid var(--line); margin-left: 6px; font-family: var(--font-body); font-weight: 500; }
+
+/* 차트 */
+.chart-box { position: relative; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--fg-2); margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+svg text { font-family: var(--font-body); }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+  white-space: nowrap;
+}
+.tip .num { font-size: 12.5px; }
+
+select {
+  font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg);
+}
+.notes { margin: 0; padding-left: 18px; color: var(--fg-2); display: flex; flex-direction: column; gap: 6px; max-width: 80ch; }
+.notes b { color: var(--fg); }
+@media (prefers-reduced-motion: no-preference) { .kpi .k-value { transition: color .2s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>뉴트 프로모션 시뮬레이터</h1>
+    <p class="sub">공부방람회2 뉴트 프로모션 · 구매금액 구간별 혜택(포인트) 지급 시 예상 매출 · 예상 혜택 · 예상 비용</p>
+    <div class="meta">
+      <span class="chip">기준 실적 <b>2025년 11월 29일 ~ 2026년 3월 8일 주문</b></span>
+      <span class="chip">실적사업소 <b>서울 · 경기 · 부산 · 대전 · 광주 · 대구사업소 · 쇼핑몰</b></span>
+      <span class="chip">기준 수주 <b>7,280건</b> (뉴트 포함 수주)</span>
+      <span class="chip">구간 산정 금액 <b>뉴트 + 의자 + 매트리스 + 조명 수주금액 합계</b></span>
+    </div>
+    <p class="muted" style="margin:10px 0 0;font-size:12.5px">*뉴트는 품목구분 없이 '시리즈' 또는 품목명에 '뉴트'가 포함된 품목으로 필터링</p>
+  </header>
+
+  <section class="panel" aria-labelledby="ctl-title">
+    <div class="panel-head">
+      <h2 id="ctl-title">시뮬레이션 설정</h2>
+      <p>구간별 뉴트 수량 상승률을 정하면, 각 구간의 객단가와 혜택금액으로 매출 · 혜택 · 비용을 다시 계산합니다.</p>
+    </div>
+    <div class="controls">
+      <div>
+        <span class="ctl-label">뉴트 수량 상승률 (모든 혜택 구간에 일괄 적용)</span>
+        <div class="presets" role="group" aria-label="상승률 빠른 선택">
+          <button class="preset" type="button" data-rate="0">0% (기준)</button>
+          <button class="preset" type="button" data-rate="5">5% 상승</button>
+          <button class="preset" type="button" data-rate="10">10% 상승</button>
+          <button class="preset" type="button" data-rate="15">15% 상승</button>
+        </div>
+        <div class="slider-row">
+          <input type="range" id="global-rate" min="0" max="30" step="1" value="10" aria-label="일괄 상승률">
+          <span class="slider-val" id="global-rate-val">10%</span>
+        </div>
+        <label class="check" for="include-t0">
+          <input type="checkbox" id="include-t0">
+          <span>150만원 미만 (혜택 없음) 구간에도 같은 상승률 적용<br><span class="muted">기본값은 꺼짐. 혜택이 없는 구간은 프로모션으로 수량이 늘지 않는다고 봅니다.</span></span>
+        </label>
+        <div class="disc-row">
+          <label class="ctl-label" for="disc" style="margin:0">포인트 구매 할인율</label>
+          <input type="number" id="disc" min="0" max="100" step="0.1" value="8.2">
+          <span class="muted">% · 예상 비용 = 혜택금액 × (1 − 할인율)</span>
+        </div>
+      </div>
+      <div>
+        <span class="ctl-label">구간별 상승률 직접 조정</span>
+        <table class="rate-table" id="rate-table">
+          <thead><tr><th>구매금액 구간</th><th>1건당 혜택</th><th>뉴트 수량 상승률</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="kpi-title">
+    <h2 id="kpi-title" style="margin-bottom:12px">현재 설정 결과 <span class="muted" style="font-weight:400;font-size:13px" id="kpi-sub"></span></h2>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="scn-title">
+    <div class="panel-head">
+      <h2 id="scn-title">상승률 시나리오 비교 (전체 합계)</h2>
+      <p>0% / 5% / 10% / 15%는 모든 혜택 구간에 같은 상승률을 적용한 값이고, 마지막 열은 위에서 정한 현재 설정입니다.</p>
+    </div>
+    <div class="table-scroll"><table class="data" id="scn-table"></table></div>
+  </section>
+
+  <section class="panel" aria-labelledby="tier-title">
+    <div class="panel-head">
+      <h2 id="tier-title">구매금액 구간별 상세 (현재 설정)</h2>
+      <p>예상 수주건수 = 기준 수주건수 × (1 + 상승률) · 예상 매출 = 예상 수주건수 × 구간 객단가</p>
+    </div>
+    <div class="table-scroll"><table class="data" id="tier-table"></table></div>
+  </section>
+
+  <section class="panel" aria-labelledby="chart-title">
+    <div class="panel-head">
+      <h2 id="chart-title">구매금액 구간별 예상 비용 (포인트 구매 비용, 원)</h2>
+      <p>막대에 마우스를 올리면 금액이 나옵니다.</p>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--series-base)"></i>기준 (상승률 0%)</span>
+      <span><i style="background:var(--series-scn)"></i>현재 설정</span>
+    </div>
+    <div class="chart-box" id="chart-box">
+      <svg id="chart" width="100%" height="300" role="img" aria-label="구간별 예상 비용 막대 차트"></svg>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="mx-title">
+    <div class="panel-head">
+      <h2 id="mx-title">구분 × 구매금액 구간 (현재 설정)</h2>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label for="mx-metric" class="muted" style="font-size:12.5px">표시 항목</label>
+        <select id="mx-metric">
+          <option value="orders">예상 수주건수 (건)</option>
+          <option value="qty">예상 뉴트 수량 (개)</option>
+          <option value="sales">예상 매출 (원)</option>
+          <option value="benefit">예상 혜택 (원)</option>
+          <option value="cost" selected>예상 비용 (원)</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-scroll"><table class="data" id="mx-table"></table></div>
+  </section>
+
+  <section class="panel" aria-labelledby="note-title">
+    <div class="panel-head"><h2 id="note-title">계산 기준과 가정</h2></div>
+    <ul class="notes">
+      <li><b>기준 데이터</b>는 위 기간 · 사업소의 뉴트 포함 수주 7,280건입니다. 직전 성수기 실적에 이번 혜택 구간을 그대로 적용했다고 보고 계산합니다.</li>
+      <li><b>상승률</b>은 구간별 뉴트 수량 기준입니다. 구간 안에서 수주 1건당 뉴트 수량과 객단가는 그대로라고 가정합니다. 그래서 뉴트 수량이 10% 늘면 그 구간의 수주건수와 매출도 10% 늘어납니다.</li>
+      <li><b>예상 매출</b>은 혜택 구간을 정하는 금액(뉴트 + 의자 + 매트리스 + 조명 수주금액)입니다. 같은 주문에 들어간 기타 품목 금액은 포함하지 않습니다.</li>
+      <li><b>예상 혜택</b> = 예상 수주건수 × 1건당 혜택금액 (5만 · 15만 · 30만 · 50만원). 고객에게 지급되는 포인트 금액입니다.</li>
+      <li><b>예상 비용</b> = 예상 혜택 × (1 − 포인트 구매 할인율). 할인율 기본값은 8.2%이며, 회사가 업체에서 포인트를 사는 실제 비용입니다.</li>
+      <li><b>기준 대비 증가 매출</b>은 상승률로 늘어난 매출만 뜻합니다. 기준 실적 고객도 혜택을 받기 때문에 비용은 전체 수주에 대해 발생합니다.</li>
+      <li><b>반영하지 않은 것</b>: 혜택을 받으려고 구매금액을 다음 구간으로 올리는 고객 이동은 계산에 넣지 않았습니다. 이런 이동이 생기면 실제 비용과 매출은 이 값보다 커집니다.</li>
+      <li>수주건수와 뉴트 수량은 계산값이라 소수가 나올 수 있어 반올림해서 표시합니다. 금액은 반올림하지 않은 건수로 계산합니다.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+// 기준 실적: [구간][구분] = [수주건수, 뉴트 세트수량, 혜택대상 수주금액(원)]
+const TIERS = [
+  { label: '150만원 미만 (혜택 없음)',     short: '150만원 미만',  benefit: 0 },
+  { label: '150만원 이상 ~ 250만원 미만', short: '150~250만원',  benefit: 50000 },
+  { label: '250만원 이상 ~ 350만원 미만', short: '250~350만원',  benefit: 150000 },
+  { label: '350만원 이상 ~ 450만원 미만', short: '350~450만원',  benefit: 300000 },
+  { label: '450만원 이상',               short: '450만원 이상', benefit: 500000 },
+];
+const GROUPS = ['1) 뉴트만', '2) 뉴트+의자', '3) 뉴트+매트리스', '4) 뉴트+조명', '5) 뉴트+2개 품목군 이상'];
+const DATA = [
+  [[2871,5084,1995576300],[125,203,123457025],[15,23,15487970],[892,1299,1105223457],[59,77,76103003]],
+  [[475,1836,903433603],[72,230,139870512],[33,77,64531480],[1371,3835,2657834294],[215,483,431351839]],
+  [[102,529,295035579],[11,47,32275440],[15,55,45017224],[573,2532,1667633106],[155,584,456589446]],
+  [[15,107,59208214],[3,20,12427273],[3,11,11453615],[130,845,503723661],[37,193,143286437]],
+  [[10,86,53662798],[1,13,7585458],[5,30,30699079],[65,578,369484900],[27,279,159122186]],
+];
+
+const state = { rates: [0, 10, 10, 10, 10], global: 10, includeT0: false, disc: 8.2 };
+
+const $ = id => document.getElementById(id);
+const won = v => Math.round(v).toLocaleString('ko-KR');
+const cnt = v => Math.round(v).toLocaleString('ko-KR');
+const pct = (v, d = 1) => (v).toFixed(d) + '%';
+function eok(v) {
+  const a = Math.abs(v);
+  if (a >= 1e8) return '약 ' + (v / 1e8).toFixed(2) + '억원';
+  if (a >= 1e4) return '약 ' + Math.round(v / 1e4).toLocaleString('ko-KR') + '만원';
+  return won(v) + '원';
+}
+function signed(v, fmt) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + fmt(Math.abs(v)); }
+// 기준 대비 증감: "+1,234원 (+10.0%)"
+function delta(cur, base) {
+  const d = cur - base;
+  const p = base ? d / base * 100 : 0;
+  return signed(d, won) + '원 (' + signed(p, v => v.toFixed(1)) + '%)';
+}
+
+// 구간·구분별 계산
+function compute(rates, discPct) {
+  const keep = 1 - discPct / 100;
+  const tiers = TIERS.map((t, i) => {
+    const r = rates[i] / 100;
+    const groups = DATA[i].map(([n, q, a]) => {
+      const orders = n * (1 + r);
+      const benefit = orders * t.benefit;
+      return { baseOrders: n, baseQty: q, baseSales: a, orders, qty: q * (1 + r), sales: a * (1 + r), benefit, cost: benefit * keep };
+    });
+    const sum = k => groups.reduce((s, g) => s + g[k], 0);
+    const baseOrders = sum('baseOrders'), baseSales = sum('baseSales');
+    return {
+      ...t, rate: rates[i], groups,
+      baseOrders, baseQty: sum('baseQty'), baseSales,
+      orders: sum('orders'), qty: sum('qty'), sales: sum('sales'), benefit: sum('benefit'), cost: sum('cost'),
+      aov: baseSales / baseOrders,
+    };
+  });
+  const tot = k => tiers.reduce((s, t) => s + t[k], 0);
+  return { tiers, orders: tot('orders'), qty: tot('qty'), sales: tot('sales'), benefit: tot('benefit'), cost: tot('cost'), baseSales: tot('baseSales'), baseQty: tot('baseQty'), baseOrders: tot('baseOrders') };
+}
+function uniformRates(r) { return TIERS.map((t, i) => (i === 0 && !state.includeT0) ? 0 : r); }
+
+// 구간별 상승률 입력표
+function buildRateTable() {
+  const tb = $('rate-table').querySelector('tbody');
+  tb.innerHTML = TIERS.map((t, i) => `
+    <tr data-i="${i}">
+      <td>${t.label}</td>
+      <td class="num">${t.benefit ? (t.benefit / 10000) + '만원' : '없음'}</td>
+      <td><input type="number" id="rate-${i}" min="0" max="100" step="0.5" value="${state.rates[i]}" aria-label="${t.label} 상승률"> %</td>
+    </tr>`).join('');
+  TIERS.forEach((t, i) => {
+    $('rate-' + i).addEventListener('input', e => {
+      const v = parseFloat(e.target.value);
+      state.rates[i] = isFinite(v) && v >= 0 ? v : 0;
+      render(false);
+    });
+  });
+}
+function syncRateInputs() {
+  TIERS.forEach((t, i) => {
+    const el = $('rate-' + i);
+    if (document.activeElement !== el) el.value = state.rates[i];
+    el.closest('tr').classList.toggle('off', state.rates[i] === 0);
+  });
+}
+function setGlobal(r) {
+  state.global = r;
+  state.rates = uniformRates(r);
+  $('global-rate').value = r;
+  render(true);
+}
+
+function render(fromGlobal) {
+  $('global-rate-val').textContent = state.global + '%';
+  document.querySelectorAll('.preset').forEach(b => {
+    const uniform = state.rates.every((v, i) => v === uniformRates(+b.dataset.rate)[i]);
+    b.setAttribute('aria-pressed', String(uniform && +b.dataset.rate === state.global));
+  });
+  syncRateInputs();
+
+  const base = compute([0, 0, 0, 0, 0], state.disc);
+  const cur = compute(state.rates, state.disc);
+  const rateTxt = state.rates.slice(1).every(v => v === state.rates[1])
+    ? `혜택 구간 뉴트 수량 ${state.rates[1]}% 상승` + (state.rates[0] ? ` · 혜택 없음 구간 ${state.rates[0]}% 상승` : '')
+    : '구간별 상승률 개별 설정';
+  $('kpi-sub').textContent = '· ' + rateTxt + ' · 포인트 구매 할인율 ' + state.disc + '%';
+  renderKpis(base, cur);
+  renderScenarios(cur);
+  renderTiers(base, cur);
+  renderChart(base, cur);
+  renderMatrix(cur);
+}
+
+function kpi(label, value, unit, approx, delta, primary) {
+  return `<div class="kpi${primary ? ' primary' : ''}">
+    <span class="k-label">${label}</span>
+    <span class="k-value">${value}<span class="k-unit">${unit}</span></span>
+    <span class="k-approx">${approx}</span>
+    <span class="k-delta">${delta}</span></div>`;
+}
+function renderKpis(base, cur) {
+  const dSales = cur.sales - base.sales;
+  const costRatio = cur.sales ? cur.cost / cur.sales * 100 : 0;
+  const roi = cur.cost ? dSales / cur.cost : 0;
+  $('kpis').innerHTML = [
+    kpi('예상 매출 (혜택대상 수주금액)', won(cur.sales), '원', eok(cur.sales),
+      `기준 대비 증가 매출 <b class="num ${dSales > 0 ? 'up' : ''}">${delta(cur.sales, base.sales)}</b>`, false),
+    kpi('예상 혜택 (고객 지급 포인트)', won(cur.benefit), '원', eok(cur.benefit),
+      `기준 대비 <b class="num">${delta(cur.benefit, base.benefit)}</b>`, false),
+    kpi('예상 비용 (포인트 구매 비용)', won(cur.cost), '원', eok(cur.cost),
+      `혜택 ${eok(cur.benefit)}에서 ${state.disc}% 할인 · 기준 대비 <b class="num">${delta(cur.cost, base.cost)}</b>`, true),
+    kpi('매출 대비 비용률', costRatio.toFixed(2), '%', `예상 비용 ÷ 예상 매출`,
+      `증가 매출 ÷ 예상 비용 = <b class="num">${roi.toFixed(2)}배</b>`, false),
+  ].join('');
+}
+
+function renderScenarios(cur) {
+  const cols = [0, 5, 10, 15].map(r => ({ head: r === 0 ? '기준 (0%)' : r + '% 상승', res: compute(uniformRates(r), state.disc), cur: false }));
+  cols.push({ head: '현재 설정', res: cur, cur: true });
+  const base = cols[0].res;
+  const rows = [
+    ['뉴트 수량', '개', c => cnt(c.qty)],
+    ['수주건수', '건', c => cnt(c.orders)],
+    ['예상 매출 (혜택대상 수주금액)', '원', c => won(c.sales)],
+    ['기준 대비 증가 매출', '원, %', c => delta(c.sales, base.sales)],
+    ['예상 혜택 (고객 지급 포인트)', '원', c => won(c.benefit)],
+    ['예상 비용 (포인트 구매 비용)', '원', c => won(c.cost)],
+    ['매출 대비 비용률', '%', c => pct(c.cost / c.sales * 100, 2)],
+    ['증가 매출 ÷ 예상 비용', '배', c => (c.cost ? ((c.sales - base.sales) / c.cost).toFixed(2) : '0.00')],
+  ];
+  const head = `<thead><tr><th>항목 (단위)</th>${cols.map(c => `<th class="${c.cur ? 'cur' : ''}">${c.head}</th>`).join('')}</tr></thead>`;
+  const body = rows.map(([l, u, f]) => `<tr><th>${l} <span class="muted">(${u})</span></th>${cols.map(c => `<td class="${c.cur ? 'cur' : ''}">${f(c.res)}</td>`).join('')}</tr>`).join('');
+  $('scn-table').innerHTML = head + '<tbody>' + body + '</tbody>';
+}
+
+function renderTiers(base, cur) {
+  const head = `<thead><tr>
+    <th>구매금액 구간</th><th>뉴트 수량 상승률</th><th>객단가 (원)</th>
+    <th>기준 수주건수 (건)</th><th>예상 수주건수 (건)</th>
+    <th>기준 뉴트 수량 (개)</th><th>예상 뉴트 수량 (개)</th>
+    <th>예상 매출 (원)</th><th>1건당 혜택 (원)</th><th>예상 혜택 (원)</th><th>예상 비용 (원)</th></tr></thead>`;
+  const body = cur.tiers.map(t => `<tr>
+    <th>${t.label}</th><td>${pct(t.rate, t.rate % 1 ? 1 : 0)}</td><td>${won(t.aov)}</td>
+    <td>${cnt(t.baseOrders)}</td><td>${cnt(t.orders)}</td>
+    <td>${cnt(t.baseQty)}</td><td>${cnt(t.qty)}</td>
+    <td>${won(t.sales)}</td><td>${won(t.benefit / t.orders || 0)}</td><td>${won(t.benefit)}</td><td>${won(t.cost)}</td></tr>`).join('');
+  const total = `<tr class="total"><th>합계</th><td>—</td><td>${won(cur.baseSales / cur.baseOrders)}</td>
+    <td>${cnt(cur.baseOrders)}</td><td>${cnt(cur.orders)}</td><td>${cnt(cur.baseQty)}</td><td>${cnt(cur.qty)}</td>
+    <td>${won(cur.sales)}</td><td>—</td><td>${won(cur.benefit)}</td><td>${won(cur.cost)}</td></tr>`;
+  $('tier-table').innerHTML = head + '<tbody>' + body + total + '</tbody>';
+}
+
+function renderChart(base, cur) {
+  const svg = $('chart');
+  const W = Math.max(320, svg.clientWidth || 800), H = 300;
+  const m = { t: 16, r: 12, b: 44, l: 74 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const tiers = cur.tiers.slice(1);
+  const baseT = base.tiers.slice(1);
+  const max = Math.max(...tiers.map(t => t.cost), ...baseT.map(t => t.cost), 1);
+  const step = niceStep(max / 4);
+  const top = Math.ceil(max / step) * step;
+  const y = v => m.t + ih - v / top * ih;
+  const band = iw / tiers.length;
+  const bw = Math.min(46, band * 0.3);
+  let g = '';
+  for (let v = 0; v <= top + 1; v += step) {
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>`;
+    g += `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--fg-3)">${axisLabel(v)}</text>`;
+  }
+  tiers.forEach((t, i) => {
+    const cx = m.l + band * i + band / 2;
+    const bars = [[baseT[i].cost, 'var(--series-base)', '기준 (0%)', cx - bw - 1], [t.cost, 'var(--series-scn)', '현재 설정 (' + pct(t.rate, t.rate % 1 ? 1 : 0) + ' 상승)', cx + 1]];
+    bars.forEach(([v, c, name, x]) => {
+      const yy = y(v), h = Math.max(0, m.t + ih - yy);
+      const rr = Math.min(4, h);
+      g += `<path d="M${x},${m.t + ih} V${yy + rr} Q${x},${yy} ${x + rr},${yy} H${x + bw - rr} Q${x + bw},${yy} ${x + bw},${yy + rr} V${m.t + ih} Z" fill="${c}"/>`;
+      g += `<rect x="${x - 4}" y="${m.t}" width="${bw + 8}" height="${ih}" fill="transparent" data-tip="${t.label}|${name}|${won(v)}"/>`;
+    });
+    g += `<text x="${cx}" y="${m.t + ih + 18}" text-anchor="middle" font-size="12" fill="var(--fg-2)">${t.short}</text>`;
+    g += `<text x="${cx}" y="${m.t + ih + 34}" text-anchor="middle" font-size="11" fill="var(--fg-3)">혜택 ${t.benefit / 10000}만원</text>`;
+  });
+  g += `<line x1="${m.l}" x2="${W - m.r}" y1="${m.t + ih}" y2="${m.t + ih}" stroke="var(--fg-3)" stroke-width="1"/>`;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+function axisLabel(v) {
+  if (v === 0) return '0원';
+  if (v >= 1e8) return (v / 1e8).toFixed(v % 1e8 ? 1 : 0) + '억원';
+  return (v / 1e4).toLocaleString('ko-KR') + '만원';
+}
+
+function renderMatrix(cur) {
+  const key = $('mx-metric').value;
+  const fmt = (key === 'orders' || key === 'qty') ? cnt : won;
+  const head = `<thead><tr><th>구매금액 구간</th>${GROUPS.map(g => `<th>${g}</th>`).join('')}<th>합계</th></tr></thead>`;
+  const colTot = GROUPS.map(() => 0);
+  const body = cur.tiers.map(t => {
+    let rowTot = 0;
+    const cells = t.groups.map((g, j) => { rowTot += g[key]; colTot[j] += g[key]; return `<td>${fmt(g[key])}</td>`; }).join('');
+    return `<tr><th>${t.label}</th>${cells}<td>${fmt(rowTot)}</td></tr>`;
+  }).join('');
+  const all = colTot.reduce((a, b) => a + b, 0);
+  const total = `<tr class="total"><th>합계</th>${colTot.map(v => `<td>${fmt(v)}</td>`).join('')}<td>${fmt(all)}</td></tr>`;
+  $('mx-table').innerHTML = head + '<tbody>' + body + total + '</tbody>';
+}
+
+// 이벤트
+document.querySelectorAll('.preset').forEach(b => b.addEventListener('click', () => setGlobal(+b.dataset.rate)));
+$('global-rate').addEventListener('input', e => setGlobal(+e.target.value));
+$('include-t0').addEventListener('change', e => { state.includeT0 = e.target.checked; setGlobal(state.global); });
+$('disc').addEventListener('input', e => { const v = parseFloat(e.target.value); state.disc = isFinite(v) ? Math.min(100, Math.max(0, v)) : 0; render(false); });
+$('mx-metric').addEventListener('change', () => render(false));
+window.addEventListener('resize', () => render(false));
+
+const box = $('chart-box'), tip = $('tip');
+$('chart').addEventListener('mousemove', e => {
+  const d = e.target.getAttribute && e.target.getAttribute('data-tip');
+  if (!d) { tip.hidden = true; return; }
+  const [tier, name, val] = d.split('|');
+  tip.innerHTML = `<div class="muted">${tier}</div><div>${name}</div><div><b class="num">${val}원</b> (예상 비용)</div>`;
+  tip.hidden = false;
+  const r = box.getBoundingClientRect();
+  let x = e.clientX - r.left + 12;
+  if (x + tip.offsetWidth > r.width) x = e.clientX - r.left - tip.offsetWidth - 12;
+  tip.style.left = Math.max(0, x) + 'px';
+  tip.style.top = (e.clientY - r.top - 10) + 'px';
+});
+$('chart').addEventListener('mouseleave', () => { tip.hidden = true; });
+
+buildRateTable();
+setGlobal(10);
+</script>

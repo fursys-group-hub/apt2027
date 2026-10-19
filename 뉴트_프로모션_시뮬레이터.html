@@ -127,6 +127,7 @@ table.data tbody th { font-weight: 600; }
 table.data td { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 table.data tr.total th, table.data tr.total td { font-weight: 700; background: var(--surface-2); border-bottom: none; }
 table.data th.cur, table.data td.cur { background: var(--accent-soft); }
+table.data .pct { color: var(--fg-3); font-size: 11.5px; font-weight: 400; }
 table.data .rowsub { display: block; font-size: 11.5px; color: var(--fg-3); font-weight: 400; }
 .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--fg-3); border: 1px solid var(--line); margin-left: 6px; font-family: var(--font-body); font-weight: 500; }
 
@@ -242,7 +243,10 @@ select {
 
   <section class="panel" aria-labelledby="mx-title">
     <div class="panel-head">
-      <h2 id="mx-title">구분 × 구매금액 구간 (현재 설정)</h2>
+      <div>
+        <h2 id="mx-title">구분 × 구매금액 구간 (현재 설정)</h2>
+        <p style="margin-top:4px">괄호 안 % = 전체 합계 대비 비중</p>
+      </div>
       <div style="display:flex;align-items:center;gap:8px">
         <label for="mx-metric" class="muted" style="font-size:12.5px">표시 항목</label>
         <select id="mx-metric">
@@ -494,14 +498,16 @@ function renderMatrix(cur) {
   const key = $('mx-metric').value;
   const fmt = (key === 'orders' || key === 'qty') ? cnt : won;
   const head = `<thead><tr><th>구매금액 구간</th>${GROUPS.map(g => `<th>${g}</th>`).join('')}<th>합계</th></tr></thead>`;
+  const all = cur.tiers.reduce((s, t) => s + t.groups.reduce((a, g) => a + g[key], 0), 0);
+  // 숫자 + (전체 합계 대비 비중 %)
+  const cell = v => `<td>${fmt(v)} <span class="pct">(${all ? (v / all * 100).toFixed(1) : '0.0'}%)</span></td>`;
   const colTot = GROUPS.map(() => 0);
   const body = cur.tiers.map(t => {
     let rowTot = 0;
-    const cells = t.groups.map((g, j) => { rowTot += g[key]; colTot[j] += g[key]; return `<td>${fmt(g[key])}</td>`; }).join('');
-    return `<tr><th>${t.label}</th>${cells}<td>${fmt(rowTot)}</td></tr>`;
+    const cells = t.groups.map((g, j) => { rowTot += g[key]; colTot[j] += g[key]; return cell(g[key]); }).join('');
+    return `<tr><th>${t.label}</th>${cells}${cell(rowTot)}</tr>`;
   }).join('');
-  const all = colTot.reduce((a, b) => a + b, 0);
-  const total = `<tr class="total"><th>합계</th>${colTot.map(v => `<td>${fmt(v)}</td>`).join('')}<td>${fmt(all)}</td></tr>`;
+  const total = `<tr class="total"><th>합계</th>${colTot.map(cell).join('')}${cell(all)}</tr>`;
   $('mx-table').innerHTML = head + '<tbody>' + body + total + '</tbody>';
 }
 

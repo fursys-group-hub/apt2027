@@ -409,13 +409,21 @@ function wlev(a,b){
   return d[m][n];
 }
 // 코드 칸만 잘라 읽은 글자 → 가장 가까운 코드표 코드 (2위와 차이가 분명할 때만). 없으면 계열이 맞는 새 코드로 받는다.
-function fuzzyCode(t){
+function fuzzyCode(t, amounts){
   if (knownCode(t)) return {code:t, cost:0};
   const tz = t.slice(0,3) + t.slice(3).replace(/[OQCD]/g,"0");
   if (knownCode(tz)) return {code:tz, cost:0.3};
-  let b1=null, c1=9, c2=9;
-  ALL_KNOWN().forEach(k=>{ const c=wlev(t,k); if (c<c1){ c2=c1; c1=c; b1=k; } else if (c<c2 && k!==b1) c2=c; });
-  if (b1 && c1<=(t.length>=8 ? 2.6 : 1.5) && c2-c1>=0.7) return {code:b1, cost:c1};
+  let b1=null, c1=9, c2=9; const costs = [];
+  ALL_KNOWN().forEach(k=>{ const c=wlev(t,k); costs.push([k,c]); if (c<c1){ c2=c1; c1=c; b1=k; } else if (c<c2 && k!==b1) c2=c; });
+  const lim = t.length>=8 ? 2.6 : 1.5;
+  if (b1 && c1<=lim && c2-c1>=0.7) return {code:b1, cost:c1};
+  // 비슷한 코드가 여럿(ICB0005A·ICB0009A 등)이면 같은 줄 금액과 소비자가가 맞는 코드가 하나일 때 그 코드로
+  if (b1 && c1<=lim+1 && amounts && amounts.length){
+    const near = [...new Map(costs.filter(([k,c])=> c<=Math.max(c1+0.69, lim+1) && amounts.includes(CODE_PRICES[k]))).entries()];
+    if (near.length===1) return {code:near[0][0], cost:near[0][1]};
+  }
+  // 그래도 애매하면 코드표에 없는 새 코드로 받기보다 가장 가까운 코드표 코드를 낮은 신뢰도로 받는다
+  if (b1 && c1<=lim && c1<c2) return {code:b1, cost:c1+1};
   const t0 = t.slice(0,3) + t.slice(3).replace(/[OQC]/g,"0");
   if (looksLikeCode(t0) && t0.length>=7 && t0.length<=11) return {code:t0, cost:3};
   return null;
@@ -1016,7 +1024,7 @@ async function parseWithOCR(blob){
     const words = [];   // 글자 위치(전체 이미지 좌표): 2단계에서 코드 칸 위치와 같은 줄 금액을 찾는 데 쓴다
     let n = 0;
     for (const [img, psm] of passes){
-      n++; setStatus("이미지 글자 인식 중… ("+n+"/"+(passes.length+2)+")");
+      n++; setStatus("이미지 글자 인식 중… ("+n+"/"+(passes.length+4)+")");
       await w.setParameters({ tessedit_char_whitelist:WL, preserve_interword_spaces:"1", tessedit_pageseg_mode: psm });
       const res = await w.recognize(img);
       text += "\n" + (res?.data?.text || "");
@@ -1033,16 +1041,19 @@ async function parseWithOCR(blob){
       const sctx = strip.getContext("2d"); sctx.imageSmoothingQuality = "high"; sctx.fillStyle="#fff"; sctx.fillRect(0,0,strip.width,strip.height);
       const amountWords = words.filter(x=>/^\d[\d,.]*$/.test(x.t) && x.x0 > cx1);
       const lineFor = (code, yc, h) => { const band = amountWords.filter(x=> Math.abs((x.y0+x.y1)/2 - yc) <= Math.max(h, 12)*0.7); const seen=new Set(); const sorted = band.sort((a,b)=>a.x0-b.x0).filter(x=>{ const k=Math.round(x.x0/8); if (seen.has(k)) return false; seen.add(k); return true; }); return code+" "+sorted.map(x=>x.t).join(" "); };
-      for (const [src, tag] of [[bin,"b"],[gray,"g"]]){
-        n++; setStatus("코드 칸 다시 읽는 중… ("+n+"/"+(passes.length+2)+")");
+      const amountsAt = (yc, h) => amountWords.filter(x=> Math.abs((x.y0+x.y1)/2 - yc) <= Math.max(h, 12)).map(x=>toInt(x.t)).filter(v=>v>=1000);
+      // 표 형태(psm 4)는 줄을 건너뛰는 경우가 있어, 한 덩어리 글(psm 6)로도 읽는다
+      for (const [src, psm] of [[bin,"4"],[gray,"4"],[bin,"6"],[gray,"6"]]){
+        n++; setStatus("코드 칸 다시 읽는 중… ("+n+"/"+(passes.length+4)+")");
         sctx.fillRect(0,0,strip.width,strip.height); sctx.drawImage(src, sx, 0, ex-sx, src.height, 0, 0, strip.width, strip.height);
-        await w.setParameters({ tessedit_char_whitelist:WL, preserve_interword_spaces:"1", tessedit_pageseg_mode: "4" });
+        await w.setParameters({ tessedit_char_whitelist:WL, preserve_interword_spaces:"1", tessedit_pageseg_mode: psm });
         const res = await w.recognize(strip);
         (res?.data?.lines||[]).forEach(l=>{
           // 코드 칸에는 코드만 있으므로 띄어 읽힌 조각도 붙여서 코드표와 비교 (모양이 비슷한 글자는 작은 차이로 계산)
           const t = (l.text||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
-          const m = t.length>=6 ? fuzzyCode(t) : null; if (!m) return;
-          stripRows.push({code:m.code, cost:m.cost, yc:(l.bbox.y0+l.bbox.y1)/2/kk, h:Math.max(12,(l.bbox.y1-l.bbox.y0)/kk)});
+          const yc = (l.bbox.y0+l.bbox.y1)/2/kk, h = Math.max(12,(l.bbox.y1-l.bbox.y0)/kk);
+          const m = t.length>=6 ? fuzzyCode(t, amountsAt(yc, h)) : null; if (!m) return;
+          stripRows.push({code:m.code, cost:m.cost, yc, h});
         });
       }
       // 같은 높이(같은 표 줄)의 판독은 하나로: 1단계에서도 읽힌 코드 > 코드표와 더 가까운 코드 순
@@ -1050,7 +1061,8 @@ async function parseWithOCR(blob){
       const rows = [];
       stripRows.sort((a,b)=>a.yc-b.yc).forEach(r=>{ const g = rows.find(g=>Math.abs(g.yc-r.yc) <= Math.max(g.h,r.h)*0.6); if (g) g.list.push(r); else rows.push({yc:r.yc, h:r.h, list:[r]}); });
       rows.forEach(g=>{
-        const pick = g.list.slice().sort((a,b)=> (stage1.has(b.code)-stage1.has(a.code)) || (a.cost-b.cost))[0];
+        // 코드표에 있는 코드 > 1단계에서도 읽힌 코드 > 코드표와 더 가까운 코드 순
+        const pick = g.list.slice().sort((a,b)=> (knownCode(b.code)-knownCode(a.code)) || (stage1.has(b.code)-stage1.has(a.code)) || (a.cost-b.cost))[0];
         rowCodes.push(pick.code);
         text += "\n" + lineFor(pick.code, g.yc, g.h);
       });

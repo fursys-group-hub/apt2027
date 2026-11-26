@@ -417,6 +417,7 @@ function wlev(a,b){
 const priceClose = (n, p) => { if (!n || !p) return false; if (n===p) return true; const a=String(n), b=String(p); if (a.length!==b.length) return false; let d=0; for (let i=0;i<a.length;i++) if (a[i]!==b[i]) d++; return d===1; };
 function fuzzyCode(t, amounts){
   if (knownCode(t)) return {code:t, cost:0};
+  if (!t.startsWith("I") && knownCode("I"+t)) return {code:"I"+t, cost:0.3};
   const tz = t.slice(0,3) + t.slice(3).replace(/[OQCD]/g,"0");
   if (knownCode(tz)) return {code:tz, cost:0.3};
   let b1=null, c1=9, c2=9; const costs = [];
@@ -447,6 +448,8 @@ function correctCode(c){
   if (!c || knownCode(c)) return null;
   // 흔한 판독 오류(M↔IV, O↔0, I↔1)를 먼저 바꿔 보고, 그래도 없으면 1~2글자 차이 코드 중 하나뿐일 때만 보정
   const tries = [c.replace(/^M/,"IV"), c.replace(/^N/,"IN"), c.replace(/O/g,"0"), c.replace(/(?<=\d)O|O(?=\d)/g,"0").replace(/^1/,"I")];
+  // 맨 앞 I가 빠져 읽힌 경우(IFW0038A → FW0038A, FWO0038A): I를 붙여 코드표에 있으면 그 코드
+  if (!c.startsWith("I")) tries.push("I"+c, "I"+c.replace(/(?<=\d)O|O(?=\d)/g,"0"), "I"+c.replace(/O(?=\d)/,""));
   for (const t of tries) if (t!==c && knownCode(t)) return t;
   // 비슷한 코드가 많은 계열(IDM0009A·IDM0059A 등)에서 엉뚱한 코드로 바뀌지 않도록, 글자 모양이 헷갈리는 한 글자 차이만 보정
   const CONF = ["0O","0D","0Q","0C","0U","1I","1L","IL","5S","8B","2Z","6G","4A","MN","VY"];
@@ -807,6 +810,8 @@ function runSelfTests(){
     ["뉴트 조명형 수납침대장세트 IBS0024A + 데일리 펌 → 177.9만원, 7만원", calcNewt([it("뉴트 조명형 수납침대장세트","IBS0024A",1259000),it("데일리 펌 매트리스 (SS)","IMS11AC01A",520000)],D).cash, 70000],
     ["뉴트 1,465,000 + 데일리 프로텍터 SS 35,000 = 150만원 → 7만원 (커버·패드 합산)", calcNewt([it("뉴트 책상","IDL0021A",1465000),it("데일리 매트리스 프로텍터 (SS)","HA40E11EEF",35000)],D).cash, 70000],
     ["뉴트 1,400,000 + 쿠시노 방수커버 SS 75,000 + Q 프로텍터 → 합산 안 됨, 혜택 없음", calcNewt([it("뉴트 책상","IDL0021A",1400000),it("쿠시노 방수커버","IMP11AW00A",75000),it("프로텍터 Q","HA40E15EEF",125000)],D).cash, 0],
+    ["캡처에서 맨 앞 I가 빠진 코드 FW0038A → 뉴트 2단 서랍옷장 IFW0038A로 보정", (parseOcrLine("800X600X2055 FW0038A WW 1 499,000 499,000")||{}).code, "IFW0038A"],
+    ["캡처 판독 FWO0038A → IFW0038A로 보정", (parseOcrLine("800X600X2055 FWO0038A WW 1 499.000 499.000")||{}).code, "IFW0038A"],
     ["공용 부속(모니터암)만 + 합산 품목 → 뉴트 본품 없음, 혜택 없음", calcNewt([it("모니터암","IDU00AA05A",56000),it("아이핏 에어","HVCH3510HLN",1995000,5)],D).cash, 0],
     ["뉴트 11/27 수주 → 기간 전이라 0원", calcNewt([it("뉴트 책상","IDL0021A",2000000)],"2026-11-27").cash, 0],
     ["모션 IBM0021A + IDM0002B → 33만원 (모션 시트 예시)", calcMotion([it("모어","IBM0021A",2490000),it("업모션","IDM0002B",995000)],D).cash, 330000],
